@@ -11,6 +11,7 @@
 
 #include <stdio.h>
 #include <string.h>
+#include <ArduinoJson.h>
 
 #define DEBUG true
 #define MODE_1A
@@ -24,37 +25,44 @@
 
 String from_usb = "";
 
+void InitializeSetup(){
+  // serial port for debugin
+  if(DEBUG){
+    SerialUSB.begin(115200);
+    delay(100);
+  } 
+
+  //serial port for AT commands
+  Serial1.begin(115200);
+
+  //Reset modules
+  pinMode(LTE_RESET_PIN, OUTPUT);
+  digitalWrite(LTE_RESET_PIN, LOW);
+  pinMode(LTE_PWRKEY_PIN, OUTPUT);
+  digitalWrite(LTE_RESET_PIN, LOW);
+  delay(100);
+  digitalWrite(LTE_PWRKEY_PIN, HIGH);
+  delay(2000);
+  digitalWrite(LTE_PWRKEY_PIN, LOW);
+  pinMode(LTE_FLIGHT_PIN, OUTPUT);
+  digitalWrite(LTE_FLIGHT_PIN, LOW); //Normal Mode
+
+}
+
+void PrintToSerial(String message){
+  if(DEBUG){
+    SerialUSB.println(message);
+  }
+}
+
 void setup()
 {
-    SerialUSB.begin(115200);
-    //while (!SerialUSB)
-    {
-        ; // wait for Arduino serial Monitor port to connect
-    }
 
-    delay(100);
+  InitializeSetup();
 
-    Serial1.begin(115200);
+  PrintToSerial("Maduino Zero 4G Started!");
+  sendData("AT+CGMM", 3000, DEBUG);
 
-    //Serial1.begin(UART_BAUD, SERIAL_8N1, MODEM_RXD, MODEM_TXD);
-
-    pinMode(LTE_RESET_PIN, OUTPUT);
-    digitalWrite(LTE_RESET_PIN, LOW);
-
-    pinMode(LTE_PWRKEY_PIN, OUTPUT);
-    digitalWrite(LTE_RESET_PIN, LOW);
-    delay(100);
-    digitalWrite(LTE_PWRKEY_PIN, HIGH);
-    delay(2000);
-    digitalWrite(LTE_PWRKEY_PIN, LOW);
-
-    pinMode(LTE_FLIGHT_PIN, OUTPUT);
-    digitalWrite(LTE_FLIGHT_PIN, LOW); //Normal Mode
-    // digitalWrite(LTE_FLIGHT_PIN, HIGH);//Flight Mode
-
-    SerialUSB.println("Maduino Zero 4G Test Start!");
-
-    sendData("AT+CGMM", 3000, DEBUG);
 }
 
 void loop()
@@ -64,7 +72,7 @@ void loop()
         SerialUSB.write(Serial1.read());
         yield();
     }
-    while (SerialUSB.available() > 0)
+    while (SerialUSB.available() > 0 && DEBUG)
     {
 #ifdef MODE_1A
         int c = -1;
@@ -98,7 +106,7 @@ bool moduleStateCheck()
         msg = sendData("AT", 1000, DEBUG);
         if (msg.indexOf("OK") >= 0)
         {
-            SerialUSB.println("SIM7600 Module had turned on.");
+            PrintToSerial("SIM7600 Module had turned on.");
             moduleState = true;
             return moduleState;
         }
@@ -112,11 +120,9 @@ String sendData(String command, const int timeout, boolean debug)
     String response = "";
     if (command.equals("1A") || command.equals("1a"))
     {
-        SerialUSB.println();
-        SerialUSB.println("Get a 1A, input a 0x1A");
+        PrintToSerial("Get a 1A, input a 0x1A");
 
         Serial1.write(0x1A);
-        //Serial1.write(26);
         Serial1.println();
         return "";
     }
@@ -136,7 +142,7 @@ String sendData(String command, const int timeout, boolean debug)
     }
     if (debug)
     {
-        SerialUSB.print(response);
+        PrintToSerial(response);
     }
     return response;
 }
