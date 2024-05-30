@@ -1,19 +1,13 @@
-
-// Description: input AT commands via serial monitor to learn how to use 4G module
-// version:v1.0
-// Author:Vincent
-// web: http://www.makerfabs.com
-
-// This version is modify for SIM7600
-// If define MODE_1A
-// When "1A" or "1A" is entered, 0x1A is sent to the module.
-// When sending SNS information, you need to send 0x1A to end the input.
-
 #include <stdio.h>
 #include <string.h>
 #include <ArduinoJson.h>
+#include <SPI.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 
 #define DEBUG true
+#define DEBUG_SCREEN true
 #define MODE_1A
 
 #define DTR_PIN 9
@@ -23,7 +17,45 @@
 #define LTE_RESET_PIN 6
 #define LTE_FLIGHT_PIN 7
 
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 64 // OLED display height, in pixels
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+#define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+int unsigned displayCursor=0;
+
 String from_usb = "";
+
+void InitilizeScreen(){
+  PrintToSerial("Iniciando screen");
+  if(DEBUG){
+    if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
+      PrintToSerial("Fallo en iniciar pantalla SSD1306");
+      for(;;);
+    }
+
+    display.display();
+    delay(2000); 
+
+    display.clearDisplay();
+    display.setTextSize(1);
+    display.setTextColor(WHITE);
+    display.setCursor(0, 0);
+    display.println("Iniciando...");
+    display.display();
+  }
+}
+
+void PrintOnDisplay(String message){
+  if(DEBUG_SCREEN){
+    if(display.getCursorY()>56){
+      display.setCursor(0, 0);
+      display.clearDisplay();
+    }
+    display.println(message); 
+    display.display();
+  }
+}
 
 void InitializeSetup(){
   // serial port for debugin
@@ -57,17 +89,20 @@ void PrintToSerial(String message){
 
 void setup()
 {
-
+  InitilizeScreen();
   InitializeSetup();
 
   PrintToSerial("Maduino Zero 4G Started!");
+  PrintOnDisplay("Maduino Zero 4G Started!");
+
   sendData("AT+CGMM", 3000, DEBUG);
 
 }
 
 void loop()
 {
-    while (Serial1.available() > 0)
+ 
+  while (Serial1.available() > 0)
     {
         SerialUSB.write(Serial1.read());
         yield();
@@ -85,7 +120,7 @@ void loop()
         {
             if (!from_usb.equals(""))
             {
-                sendData(from_usb, 0, DEBUG);
+                sendData(from_usb, 300, DEBUG);
                 from_usb = "";
             }
         }
@@ -107,6 +142,7 @@ bool moduleStateCheck()
         if (msg.indexOf("OK") >= 0)
         {
             PrintToSerial("SIM7600 Module had turned on.");
+            PrintOnDisplay("SIM7600 Module had turned on.");
             moduleState = true;
             return moduleState;
         }
@@ -134,15 +170,24 @@ String sendData(String command, const int timeout, boolean debug)
     long int time = millis();
     while ((time + timeout) > millis())
     {
-        while (Serial1.available())
+      while (Serial1.available())
         {
             char c = Serial1.read();
-            response += c;
+            if (c == '\n' || c == '\r' || c == '\r\n' || c == '\n\r' ) 
+            {
+              response += ':';
+            }else{
+              response += c;
+            }
         }
     }
+    //clean response
+    response.replace(":::",":");
+    response.replace("::"," ");
     if (debug)
     {
-        PrintToSerial(response);
+      PrintOnDisplay(String(response));
+      PrintToSerial(response);
     }
     return response;
 }
