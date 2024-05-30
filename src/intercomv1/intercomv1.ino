@@ -23,18 +23,20 @@
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-int unsigned displayCursor=0;
+int unsigned displayCursorYStart=10;
 
 String from_usb = "";
 
 long unsigned CheckSignalLastTime=0;
 long unsigned TimeCheckSignalEvent=60000;
 
+long unsigned ResetTimerDebug=0;
+long unsigned TimeResetDebug=180000; //change to 30,000 for release
+
 void InitilizeScreen(){
-  PrintToSerial("Iniciando screen");
-  if(DEBUG){
+  if(DEBUG_SCREEN){
     if(!display.begin(SSD1306_SWITCHCAPVCC, SCREEN_ADDRESS)) {
-      PrintToSerial("Fallo en iniciar pantalla SSD1306");
+      PrintToSerial("fail to load SSD1306");
       for(;;);
     }
 
@@ -44,7 +46,7 @@ void InitilizeScreen(){
     display.clearDisplay();
     display.setTextSize(1);
     display.setTextColor(WHITE);
-    display.setCursor(0, 0);
+    display.setCursor(0, displayCursorYStart);
     display.println("Iniciando...");
     display.display();
   }
@@ -53,7 +55,7 @@ void InitilizeScreen(){
 void PrintOnDisplay(String message){
   if(DEBUG_SCREEN){
     if(display.getCursorY()>56){
-      display.setCursor(0, 0);
+      display.setCursor(0, displayCursorYStart);
       display.clearDisplay();
     }
     display.println(message); 
@@ -106,7 +108,11 @@ void setup()
 void loop()
 {
   long time=millis();
- CheckSignal(time);
+  if((time-ResetTimerDebug)> TimeResetDebug){
+    ResetLTE();
+    ResetTimerDebug=time;
+  }
+  CheckSignal(time);
   while (Serial1.available() > 0)
     {
         SerialUSB.write(Serial1.read());
@@ -194,6 +200,7 @@ String sendData(String command, const int timeout, boolean debug)
       PrintOnDisplay(String(response));
       PrintToSerial(response);
     }
+    ResetTimerDebug=millis();
     return response;
 }
 
@@ -220,4 +227,21 @@ void CheckSignal(long millis){
     PrintOnDisplay(message);
     CheckSignalLastTime=millis;
   }
+}
+
+void ResetLTE(){
+  PrintToSerial("Reseting LTE...");
+  PrintOnDisplay("Reseting LTE...");
+  digitalWrite(LTE_RESET_PIN, HIGH);
+  digitalWrite(LTE_RESET_PIN, LOW);
+  delay(100);
+  digitalWrite(LTE_PWRKEY_PIN, HIGH);
+  delay(2000);
+  digitalWrite(LTE_PWRKEY_PIN, LOW);
+  delay(500);
+  digitalWrite(LTE_FLIGHT_PIN, HIGH); //Normal Mode
+  delay(1000);
+  digitalWrite(LTE_FLIGHT_PIN, LOW); //Normal Mode
+  delay(1000);
+  sendData("AT+CGMM", 3000, DEBUG);
 }
