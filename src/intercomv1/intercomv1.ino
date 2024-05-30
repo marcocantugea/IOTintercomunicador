@@ -5,6 +5,7 @@
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
+#include "StringSplitter.h"
 
 #define DEBUG true
 #define DEBUG_SCREEN true
@@ -25,6 +26,9 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 int unsigned displayCursor=0;
 
 String from_usb = "";
+
+long unsigned CheckSignalLastTime=0;
+long unsigned TimeCheckSignalEvent=60000;
 
 void InitilizeScreen(){
   PrintToSerial("Iniciando screen");
@@ -101,7 +105,8 @@ void setup()
 
 void loop()
 {
- 
+  long time=millis();
+ CheckSignal(time);
   while (Serial1.available() > 0)
     {
         SerialUSB.write(Serial1.read());
@@ -175,19 +180,44 @@ String sendData(String command, const int timeout, boolean debug)
             char c = Serial1.read();
             if (c == '\n' || c == '\r' || c == '\r\n' || c == '\n\r' ) 
             {
-              response += ':';
+              response += '=';
             }else{
               response += c;
             }
         }
     }
     //clean response
-    response.replace(":::",":");
-    response.replace("::"," ");
+    response.replace("===","=");
+    response.replace("=="," ");
     if (debug)
     {
       PrintOnDisplay(String(response));
       PrintToSerial(response);
     }
     return response;
+}
+
+void CheckSignal(long millis){
+  if((millis-CheckSignalLastTime) > TimeCheckSignalEvent){
+    String response= sendData("AT+CSQ",3000,false);
+    StringSplitter *splitter = new StringSplitter(response, ':', 2);
+    String value=splitter->getItemAtIndex(1);
+    value.replace(" OK","");
+    value.trim();
+    StringSplitter *valuesSplited = new StringSplitter(value, ',', 2);
+    float rssi=valuesSplited->getItemAtIndex(0).toFloat();
+    float signal= -113+rssi*2;
+    String messageQuality="Bad Signal";
+    if(signal>=-30 && signal<-50) messageQuality="Perf Sig";
+    if(signal<=-50 && signal>-60) messageQuality="Exce Sig";
+    if(signal<=-60 && signal>-67) messageQuality="Good Sig";
+    if(signal<=-67 && signal>-70) messageQuality="Min signal";
+    if(signal<=-70 && signal>-80) messageQuality="No internet";
+    if(signal<=-80 && signal>-90) messageQuality="No signal";
+    if(signal<=-90) messageQuality="No connection";
+    String message=String(signal)+"|"+ messageQuality;
+    PrintToSerial(message);
+    PrintOnDisplay(message);
+    CheckSignalLastTime=millis;
+  }
 }
