@@ -8,6 +8,7 @@
 #include "StringSplitter.h"
 
 #define DEBUG true
+#define DEBUG_SERIAL true
 #define DEBUG_SCREEN true
 #define MODE_1A
 
@@ -71,7 +72,7 @@ void PrintOnDisplay(String message){
 
 void InitializeSetup(){
   // serial port for debugin
-  if(DEBUG){
+  if(DEBUG_SERIAL){
     SerialUSB.begin(115200);
     delay(100);
   } 
@@ -94,7 +95,7 @@ void InitializeSetup(){
 }
 
 void PrintToSerial(String message){
-  if(DEBUG){
+  if(DEBUG_SERIAL){
     SerialUSB.println(message);
   }
 }
