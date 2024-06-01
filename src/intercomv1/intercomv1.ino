@@ -23,7 +23,7 @@
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
-int unsigned displayCursorYStart=10;
+int unsigned displayCursorYStart=0;
 
 String from_usb = "";
 
@@ -31,7 +31,13 @@ long unsigned CheckSignalLastTime=0;
 long unsigned TimeCheckSignalEvent=60000;
 
 long unsigned ResetTimerDebug=0;
-long unsigned TimeResetDebug=180000; //change to 30,000 for release
+long unsigned TimeResetDebug=420000; //change to 30,000 for release
+#define ARRAY_CMDS_SIZE 4
+#define ARRAY_REGISTERCMD_SIZE 3
+const String cmds[ARRAY_CMDS_SIZE]={"chgpassadmin","at","reset","signal"};
+const String cmdsRegister[ARRAY_REGISTERCMD_SIZE]={"adminphone","phonehouse","smshouse"};
+
+String passcode = "448899";  
 
 void InitilizeScreen(){
   if(DEBUG_SCREEN){
@@ -108,38 +114,50 @@ void setup()
 void loop()
 {
   long time=millis();
-  if((time-ResetTimerDebug)> TimeResetDebug){
-    ResetLTE();
-    ResetTimerDebug=time;
-  }
-  CheckSignal(time);
-  while (Serial1.available() > 0)
-    {
-        SerialUSB.write(Serial1.read());
-        yield();
-    }
+
+  //check for serial messages event
+  CheckForSerialCMD();
+  //check signal event  
+  //CheckSignal(time);
+  
+
+  //reset lte event
+  // if((time-ResetTimerDebug)> TimeResetDebug){
+  //   ResetLTE();
+  //   ResetTimerDebug=time;
+  // }
+  
+  
+  // while (Serial1.available() > 0)
+  //   {
+  //       SerialUSB.write(Serial1.read());
+  //       yield();
+  //   }
+  if(DEBUG){
     while (SerialUSB.available() > 0 && DEBUG)
     {
-#ifdef MODE_1A
-        int c = -1;
-        c = SerialUSB.read();
-        if (c != '\n' && c != '\r')
-        {
-            from_usb += (char)c;
-        }
-        else
-        {
-            if (!from_usb.equals(""))
+    #ifdef MODE_1A
+            int c = -1;
+            c = SerialUSB.read();
+            if (c != '\n' && c != '\r')
             {
-                sendData(from_usb, 300, DEBUG);
-                from_usb = "";
+                from_usb += (char)c;
             }
-        }
-#else
-        Serial1.write(SerialUSB.read());
-        yield();
-#endif
-    }
+            else
+            {
+                if (!from_usb.equals(""))
+                {
+                    sendData(from_usb, 300, DEBUG);
+                    from_usb = "";
+                }
+            }
+    #else
+            Serial1.write(SerialUSB.read());
+            yield();
+    #endif
+      }
+  }
+    
 }
 
 bool moduleStateCheck()
@@ -200,11 +218,10 @@ String sendData(String command, const int timeout, boolean debug)
       PrintOnDisplay(String(response));
       PrintToSerial(response);
     }
-    ResetTimerDebug=millis();
     return response;
 }
 
-void CheckSignal(long millis){
+String CheckSignal(long millis){
   if((millis-CheckSignalLastTime) > TimeCheckSignalEvent){
     String response= sendData("AT+CSQ",3000,false);
     StringSplitter *splitter = new StringSplitter(response, ':', 2);
@@ -223,9 +240,14 @@ void CheckSignal(long millis){
     if(signal<=-80 && signal>-90) messageQuality="No signal";
     if(signal<=-90) messageQuality="No connection";
     String message=String(signal)+"|"+ messageQuality;
-    PrintToSerial(message);
-    PrintOnDisplay(message);
+
+    if(DEBUG){
+      PrintToSerial(message);
+      PrintOnDisplay(message);
+    }
+    
     CheckSignalLastTime=millis;
+    return message;
   }
 }
 
@@ -244,4 +266,231 @@ void ResetLTE(){
   digitalWrite(LTE_FLIGHT_PIN, LOW); //Normal Mode
   delay(1000);
   sendData("AT+CGMM", 3000, DEBUG);
+}
+
+void CheckForSerialCMD(){
+  String message = "";
+   while (Serial1.available() > 0)
+    {
+       char c = Serial1.read();
+         if (c == '\n' || c == '\r' || c == '\r\n' || c == '\n\r' ) 
+            {
+              message += '=';
+            }else{
+              message += c;
+            }
+       //SerialUSB.write(Serial1.read());
+       //yield();
+    }
+
+    //clean message
+    message.replace("==","");
+
+    if(DEBUG && message!=""){
+      PrintOnDisplay(message);
+      PrintToSerial(message);
+    }
+
+    if(message=="") return;
+    
+    if(message.startsWith("=+CMT")){
+      String commandsFound[3]={"","",""};
+
+      //verify number for allow run cmds
+      String phoneNumber=GetPhoneNumber(message);
+      PrintToSerial("phone: "+ phoneNumber);  
+      if(phoneNumber=="") {
+        if(DEBUG){
+          PrintToSerial("no phone found");  
+          PrintOnDisplay("no phone found");
+        }
+        return;
+      }
+
+      CheckCommand(message,commandsFound);
+      
+      if(commandsFound[0]=="") return;
+      commandsFound[0].trim();
+      commandsFound[1].trim();
+      commandsFound[2].trim();
+       if(commandsFound[0]=="cmd"){
+         if(isValidCommand(commandsFound[1])){
+            //triger cmd event
+            if(DEBUG){
+              PrintToSerial("CMD "+commandsFound[0]+" AC "+commandsFound[1]);
+              PrintToSerial("VAL "+commandsFound[2]);
+              PrintOnDisplay("CMD "+commandsFound[0]+" AC "+commandsFound[1]);
+              PrintOnDisplay("VAL "+commandsFound[2]);
+            }
+            
+            //String response=WaitForResponseClient(15000);
+            //String response=WaitForResponseClient(15000);
+            SendSMS(phoneNumber,"input code",15000);
+            String response=WaitForResponseClient(15000);
+            if(response=="") {
+              if(DEBUG){
+                PrintToSerial("no response..");  
+                PrintOnDisplay("no response..");
+              }
+              return;
+            }
+
+            //get the response
+            String passcodeSendIt=response.substring(response.length()-6,response.length());
+            PrintToSerial(passcodeSendIt);
+            if(passcodeSendIt!=passcode) return;
+
+            DoCommand(phoneNumber,commandsFound[0],commandsFound[1],commandsFound[2]);
+
+            //PrintToSerial(response);
+         }
+       }
+       if(commandsFound[0]=="register"){
+         if(isValidCommandRegister(commandsFound[1])){
+            //triger cmd event
+            PrintToSerial(commandsFound[1]);
+         }
+       }
+    }
+}
+
+String WaitForResponseClient(const int timeout){
+  long int time = millis();
+  String message = "";
+  if(DEBUG){
+    PrintToSerial("Waiting for response...");
+    PrintOnDisplay("Waiting for response...");
+  }
+  
+  while ((time + timeout) > millis()){
+    while (Serial1.available() > 0)
+    {
+       char c = Serial1.read();
+         if (c == '\n' || c == '\r' || c == '\r\n' || c == '\n\r' ) 
+            {
+              message += '=';
+            }else{
+              message += c;
+            }
+    }
+  }
+  //clean message
+  message.replace("==","");
+
+  if(DEBUG && message!=""){
+    PrintOnDisplay(message);
+    PrintToSerial(message);
+  }
+
+  return message;
+}
+
+void  CheckCommand(String message,String * arrayToReturn){
+  //=+CMT: "+522288464147","","24/05/30,10:17:10-24"$cmd:setadmin
+  int index= message.indexOf("$");
+  if(index==-1) new StringSplitter("", ':', 2);
+
+  String verb= message.substring(index+1,message.length());
+  int indexValues=verb.indexOf(":");
+  if(indexValues==-1) return;
+  
+  StringSplitter *valuesSplited = new StringSplitter(verb, ':', 2);
+  arrayToReturn[0]=valuesSplited->getItemAtIndex(0);
+
+  int containsEquals= valuesSplited->getItemAtIndex(1).indexOf('=');
+  PrintToSerial(String(containsEquals));
+
+  if(containsEquals==-1){ 
+
+    arrayToReturn[1]=valuesSplited->getItemAtIndex(1);
+  }else{
+    StringSplitter *vsplited = new StringSplitter(valuesSplited->getItemAtIndex(1), '=', 2);
+    arrayToReturn[1]=vsplited->getItemAtIndex(0);
+    arrayToReturn[2]=vsplited->getItemAtIndex(1);
+  }
+
+  PrintToSerial(arrayToReturn[0]);
+  PrintToSerial(arrayToReturn[1]);
+}
+
+bool isValidCommand(String cmd){
+  bool isValid=false;
+  //PrintToSerial(String(sizeof(cmds)));
+  for(int i=0; i<ARRAY_CMDS_SIZE;i++){
+    if(cmds[i]==cmd){
+      isValid=true;
+    }
+  }
+  return isValid;
+}
+
+bool isValidCommandRegister(String cmd){
+  bool isValid=false;
+  //PrintToSerial(String(sizeof(cmds)));
+  for(int i=0; i<ARRAY_CMDS_SIZE;i++){
+    if(cmdsRegister[i]==cmd){
+      isValid=true;
+    }
+  }
+  return isValid;
+}
+
+String GetPhoneNumber(String message){
+  String phone="";
+  //=+CMT: "+522288464147","","24/05/30,18:45:31-24"$cmd:signal
+  int plusIndexOf= message.lastIndexOf("+");
+  if(plusIndexOf==-1) return phone;
+
+  phone= message.substring(plusIndexOf,21);
+
+  return phone;
+}
+
+void SendSMS(String phoneNumber,String message,int  timeout){
+  //sendData("AT+CNMI=2,1,0,0,0",500,DEBUG);
+  sendData("AT+CMGS=\""+phoneNumber+"\"",timeout/2,DEBUG);
+  sendData(message,timeout/2,DEBUG);
+  sendData("1A",0,DEBUG);
+  delay(3000);
+  long time=millis();
+  String messageGet="";
+  //while ((time + 15000) > millis()){
+  while (messageGet!="OK"){
+    while (Serial1.available() > 0)
+    {
+       char c = Serial1.read();
+       //|| c == '\r\n' || c == '\n\r' 
+         if (c == '\n' && c == '\r') 
+            {
+              messageGet += '=';
+            }else{
+              messageGet += c;
+            }
+    }
+    messageGet.replace("=","");
+    messageGet.trim();
+    SerialUSB.println(messageGet);
+    if(messageGet!="") {
+      String lastvalue=messageGet.substring(messageGet.length()-2,messageGet.length());
+      lastvalue.trim();
+      if(lastvalue=="OK") messageGet="OK";
+    }
+  }
+  //sendData("AT+CNMI=2,2,0,0,0",500,DEBUG);
+  //WaitForResponseClient(800);
+
+}
+
+void DoCommand(String phoneNumber,String cmd,String action,String value ){
+  if(cmd=="cmd" && action=="signal"){
+      long time=millis();
+      String response=CheckSignal(time);
+      SendSMS(phoneNumber,response,10000);
+  }
+
+  if(cmd=="cmd" && action=="reset"){
+    ResetLTE();
+    delay(1000);
+    SendSMS(phoneNumber,"Reset Done!",10000);
+  }
 }
