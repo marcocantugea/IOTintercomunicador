@@ -35,7 +35,7 @@ long unsigned ResetTimerDebug=0;
 long unsigned TimeResetDebug=420000; //change to 30,000 for release
 #define ARRAY_CMDS_SIZE 4
 #define ARRAY_REGISTERCMD_SIZE 3
-const String cmds[ARRAY_CMDS_SIZE]={"chgpassadmin","at","reset","signal"};
+const String cmds[ARRAY_CMDS_SIZE]={"chgpassadmin","reset","signal"};
 const String cmdsRegister[ARRAY_REGISTERCMD_SIZE]={"adminphone","phonehouse","smshouse"};
 
 String passcode = "448899";  
@@ -216,7 +216,7 @@ String sendData(String command, const int timeout, boolean debug)
     response.replace("=="," ");
     if (debug)
     {
-      PrintOnDisplay(String(response));
+      PrintOnDisplay(response);
       PrintToSerial(response);
     }
     return response;
@@ -398,14 +398,14 @@ void  CheckCommand(String message,String * arrayToReturn){
   StringSplitter *valuesSplited = new StringSplitter(verb, ':', 2);
   arrayToReturn[0]=valuesSplited->getItemAtIndex(0);
 
-  int containsEquals= valuesSplited->getItemAtIndex(1).indexOf('=');
+  int containsEquals= valuesSplited->getItemAtIndex(1).indexOf('#');
   PrintToSerial(String(containsEquals));
 
   if(containsEquals==-1){ 
 
     arrayToReturn[1]=valuesSplited->getItemAtIndex(1);
   }else{
-    StringSplitter *vsplited = new StringSplitter(valuesSplited->getItemAtIndex(1), '=', 2);
+    StringSplitter *vsplited = new StringSplitter(valuesSplited->getItemAtIndex(1), '#', 2);
     arrayToReturn[1]=vsplited->getItemAtIndex(0);
     arrayToReturn[2]=vsplited->getItemAtIndex(1);
   }
@@ -494,4 +494,5 @@ void DoCommand(String phoneNumber,String cmd,String action,String value ){
     delay(1000);
     SendSMS(phoneNumber,"Reset Done!",10000);
   }
+
 }
