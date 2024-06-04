@@ -1,11 +1,12 @@
 #include <stdio.h>
 #include <string.h>
-#include <ArduinoJson.h>
+#include <Arduino_JSON.h>
 #include <SPI.h>
 #include <Wire.h>
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "StringSplitter.h"
+#include <SD.h>
 
 #define DEBUG true
 #define DEBUG_SERIAL true
@@ -23,22 +24,27 @@
 #define SCREEN_HEIGHT 64 // OLED display height, in pixels
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+
+const int PIN_SD_SELECT = 4; //sd seleced pin
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 int unsigned displayCursorYStart=0;
 
 String from_usb = "";
 
-long unsigned CheckSignalLastTime=0;
-long unsigned TimeCheckSignalEvent=60000;
-
 long unsigned ResetTimerDebug=0;
 long unsigned TimeResetDebug=420000; //change to 30,000 for release
-#define ARRAY_CMDS_SIZE 4
-#define ARRAY_REGISTERCMD_SIZE 3
-const String cmds[ARRAY_CMDS_SIZE]={"chgpassadmin","reset","signal"};
-const String cmdsRegister[ARRAY_REGISTERCMD_SIZE]={"adminphone","phonehouse","smshouse"};
 
-String passcode = "448899";  
+Sd2Card card;
+SdVolume volume;
+SdFile root;
+
+#define ARRAY_CMDS_SIZE 6
+#define ARRAY_REGISTERCMD_SIZE 3
+const String cmds[ARRAY_CMDS_SIZE]={"chgpasscode","reset","signal","getconfig","chgadminphone","resetconfig"};
+const String cmdsRegister[ARRAY_REGISTERCMD_SIZE]={"adminphone","phonehouse","smshouse"};
+const String configFileName="confprf.ivo";
+
+String passcode = "448899";
 
 void InitilizeScreen(){
   if(DEBUG_SCREEN){
@@ -54,20 +60,15 @@ void InitilizeScreen(){
     display.setTextSize(1);
     display.setTextColor(WHITE);
     display.setCursor(0, displayCursorYStart);
-    display.println("Iniciando...");
+    display.println("Strating...");
     display.display();
+    delay(2000); 
   }
 }
 
-void PrintOnDisplay(String message){
-  if(DEBUG_SCREEN){
-    if(display.getCursorY()>56){
-      display.setCursor(0, displayCursorYStart);
-      display.clearDisplay();
-    }
-    display.println(message); 
-    display.display();
-  }
+void PrintToDebug(String message){
+  PrintToSerial(message);
+  PrintOnDisplay(message);
 }
 
 void InitializeSetup(){
@@ -94,26 +95,108 @@ void InitializeSetup(){
 
 }
 
+void InitializeSD(){
+  PrintToDebug("\nInitializing SD card...");
+  
+  if (!card.init(SPI_HALF_SPEED, PIN_SD_SELECT)) {
+    if(DEBUG){
+      PrintToDebug("initialization failed. Things to check:");
+      PrintToDebug("* is a card is inserted?");
+      PrintToDebug("* Is your wiring correct?");
+      PrintToDebug("* did you change the chipSelect pin to match your shield or module?");
+      for(;;);
+    }
+  } else {
+    PrintToDebug("Wiring is correct and a card is present.");
+  }
+
+  if (!SD.begin(PIN_SD_SELECT)) {
+    PrintToDebug("initialization failed!");
+    while (1);
+  }
+
+  // print the type of card
+  if(DEBUG){
+    PrintToDebug("\nCard type: ");
+    switch (card.type()) {
+      case SD_CARD_TYPE_SD1:
+        PrintToDebug("SD1");
+        break;
+      case SD_CARD_TYPE_SD2:
+        PrintToDebug("SD2");
+        break;
+      case SD_CARD_TYPE_SDHC:
+        PrintToDebug("SDHC");
+        break;
+      default:
+        PrintToDebug("Unknown");
+    }
+  }
+  // Now we will try to open the 'volume'/'partition' - it should be FAT16 or FAT32
+  if (!volume.init(card)) {
+    PrintToDebug("Could not find FAT16/FAT32 partition.\nMake sure you've formatted the card");
+    //return;
+  }
+
+
+  // print the type and size of the first FAT-type volume
+  // uint32_t volumesize;
+  // PrintToDebug("\nVolume type is FAT");
+  // PrintToDebug(String(volume.fatType()));
+
+  // volumesize = volume.blocksPerCluster();    // clusters are collections of blocks
+  // volumesize *= volume.clusterCount();       // we'll have a lot of clusters
+  // volumesize *= 512;                            // SD card blocks are always 512 bytes
+  // PrintToDebug("Volume size (bytes): ");
+  // PrintToDebug(String(volumesize));
+  // PrintToDebug("Volume size (Kbytes): ");
+  // volumesize /= 1024;
+  // PrintToDebug(String(volumesize));
+  // PrintToDebug("Volume size (Mbytes): ");
+  // volumesize /= 1024;
+  // PrintToDebug(String(volumesize));
+
+
+  // PrintToDebug("\nFiles found on the card (name, date and size in bytes): ");
+  // root.openRoot(volume);
+
+}
+
 void PrintToSerial(String message){
   if(DEBUG_SERIAL){
     SerialUSB.println(message);
   }
 }
 
-void setup()
-{
+void PrintOnDisplay(String message){
+  if(DEBUG_SCREEN){
+    if(display.getCursorY()>56){
+      display.setCursor(0, displayCursorYStart);
+      display.clearDisplay();
+    }
+    display.println(message); 
+    display.display();
+  }
+}
+
+void setup(){
+
+  if(DEBUG){
+    delay(5000);
+  }
   InitilizeScreen();
   InitializeSetup();
-
+  InitializeSD();
+  if(!SD.exists(configFileName)) CreateInitialConfigInSD();
+    
   PrintToSerial("Maduino Zero 4G Started!");
   PrintOnDisplay("Maduino Zero 4G Started!");
-
   sendData("AT+CGMM", 3000, DEBUG);
+  
 
 }
 
-void loop()
-{
+void loop(){
   long time=millis();
 
   //check for serial messages event
@@ -161,8 +244,7 @@ void loop()
     
 }
 
-bool moduleStateCheck()
-{
+bool moduleStateCheck(){
     int i = 0;
     bool moduleState = false;
     for (i = 0; i < 5; i++)
@@ -181,8 +263,7 @@ bool moduleStateCheck()
     return moduleState;
 }
 
-String sendData(String command, const int timeout, boolean debug)
-{
+String sendData(String command, const int timeout, boolean debug){
     String response = "";
     if (command.equals("1A") || command.equals("1a"))
     {
@@ -194,7 +275,8 @@ String sendData(String command, const int timeout, boolean debug)
     }
     else
     {
-        Serial1.println(command);
+        Serial1.print(command);
+        Serial1.print('\r');
     }
 
     long int time = millis();
@@ -223,8 +305,8 @@ String sendData(String command, const int timeout, boolean debug)
 }
 
 String CheckSignal(long millis){
-  if((millis-CheckSignalLastTime) > TimeCheckSignalEvent){
-    String response= sendData("AT+CSQ",3000,false);
+  
+    String response= sendData("AT+CSQ",3000,DEBUG);
     StringSplitter *splitter = new StringSplitter(response, ':', 2);
     String value=splitter->getItemAtIndex(1);
     value.replace(" OK","");
@@ -246,10 +328,7 @@ String CheckSignal(long millis){
       PrintToSerial(message);
       PrintOnDisplay(message);
     }
-    
-    CheckSignalLastTime=millis;
     return message;
-  }
 }
 
 void ResetLTE(){
@@ -280,16 +359,12 @@ void CheckForSerialCMD(){
             }else{
               message += c;
             }
-       //SerialUSB.write(Serial1.read());
-       //yield();
     }
 
-    //clean message
     message.replace("==","");
-
+    
     if(DEBUG && message!=""){
-      PrintOnDisplay(message);
-      PrintToSerial(message);
+      PrintToDebug(message);
     }
 
     if(message=="") return;
@@ -299,14 +374,26 @@ void CheckForSerialCMD(){
 
       //verify number for allow run cmds
       String phoneNumber=GetPhoneNumber(message);
-      PrintToSerial("phone: "+ phoneNumber);  
+
       if(phoneNumber=="") {
         if(DEBUG){
-          PrintToSerial("no phone found");  
-          PrintOnDisplay("no phone found");
+          PrintToDebug("no phone found");  
         }
         return;
       }
+
+      String adminPhone=GetConfig("adminPhone");
+      int hasResetConfigCmd=message.indexOf("resetconfig");
+      PrintToDebug(adminPhone);
+      if(hasResetConfigCmd==-1){
+        if(adminPhone!="+520000000000"){
+          if(phoneNumber!=adminPhone) {
+            PrintToDebug("Invalid admin phone");
+            return;
+          }
+        }  
+      }
+      
 
       CheckCommand(message,commandsFound);
       
@@ -318,27 +405,23 @@ void CheckForSerialCMD(){
          if(isValidCommand(commandsFound[1])){
             //triger cmd event
             if(DEBUG){
-              PrintToSerial("CMD "+commandsFound[0]+" AC "+commandsFound[1]);
-              PrintToSerial("VAL "+commandsFound[2]);
-              PrintOnDisplay("CMD "+commandsFound[0]+" AC "+commandsFound[1]);
-              PrintOnDisplay("VAL "+commandsFound[2]);
+              PrintToDebug("CMD "+commandsFound[0]+" AC "+commandsFound[1]);
+              PrintToDebug("VAL "+commandsFound[2]);
             }
             
             //String response=WaitForResponseClient(15000);
             //String response=WaitForResponseClient(15000);
-            SendSMS(phoneNumber,"input code",15000);
+            SendSMS(phoneNumber,"envia el codigo",15000);
             String response=WaitForResponseClient(15000);
             if(response=="") {
               if(DEBUG){
-                PrintToSerial("no response..");  
-                PrintOnDisplay("no response..");
+                PrintToDebug("no response..");  
               }
               return;
             }
 
             //get the response
             String passcodeSendIt=response.substring(response.length()-6,response.length());
-            PrintToSerial(passcodeSendIt);
             if(passcodeSendIt!=passcode) return;
 
             DoCommand(phoneNumber,commandsFound[0],commandsFound[1],commandsFound[2]);
@@ -477,9 +560,7 @@ void SendSMS(String phoneNumber,String message,int  timeout){
       if(lastvalue=="OK") messageGet="OK";
     }
   }
-  //sendData("AT+CNMI=2,2,0,0,0",500,DEBUG);
-  //WaitForResponseClient(800);
-
+  
 }
 
 void DoCommand(String phoneNumber,String cmd,String action,String value ){
@@ -495,4 +576,142 @@ void DoCommand(String phoneNumber,String cmd,String action,String value ){
     SendSMS(phoneNumber,"Reset Done!",10000);
   }
 
+  if(cmd=="cmd" && action=="getconfig"){
+    String configSD=LoadConfigFile();
+    SendSMS(phoneNumber,configSD,10000);
+  }
+
+  if(cmd=="cmd" && action=="chgadminphone" && value!=""){
+    if(value.toInt()==0) return;
+    SendSMS(phoneNumber,"confirmar guardar nuevo numero",10000);
+    String response=WaitForResponseClient(15000);
+    if(response=="") {
+      if(DEBUG){
+        PrintToDebug("no response..");  
+      }
+      return;
+    }
+
+    //get the response
+    String confirm=response.substring(response.length()-2,response.length());
+    if(confirm!="si") return;
+    SaveConfiguration("adminPhone", "+52"+value);
+    SendSMS(phoneNumber,"adminPhone:+52"+value,10000);
+  }
+
+  if(cmd=="cmd" && action=="resetconfig"){
+    SendSMS(phoneNumber,"mkey",10000);
+    String response=WaitForResponseClient(15000);
+    if(response=="") {
+      if(DEBUG){
+        PrintToDebug("no response..");  
+      }
+      return;
+    }
+
+    //get the response
+    String confirm=response.substring(response.length()-5,response.length());
+    if(confirm!="maley") return;
+    SD.remove(configFileName);
+    CreateInitialConfigInSD();
+    SendSMS(phoneNumber,"reset done!",10000);
+  }
+
+}
+
+void CreateInitialConfigInSD(){
+
+  //String config="#";
+  int sizeOfInitialConfig=3;
+  char *config[sizeOfInitialConfig]={"hostPhone=+520000000000","passcode=448899","adminPhone=+520000000000"};
+
+  if(SD.exists(configFileName)){
+    PrintToDebug("exists config file");
+    return;
+  } 
+  // Declare a buffer to hold the result
+  
+  File configfile = SD.open(configFileName, FILE_WRITE | O_TRUNC);
+    if (configfile) {
+      for (int i=0; i<sizeOfInitialConfig; i++) {
+        configfile.print(config[i]);
+        configfile.print("\r");
+      }
+      configfile.close();
+      PrintToDebug("Config File Created...");
+
+   }else{
+     PrintToDebug("Error writing the file");
+   }
+}
+
+String LoadConfigFile(){
+  
+  String configSD="";
+  if(!SD.exists(configFileName)) return configSD;
+  File configfile = SD.open(configFileName);
+  if(configfile){
+    if (configfile.available()) {
+      configSD=configfile.readString();
+    }
+    configfile.close();
+    PrintToDebug("Check Configuration from file...");
+  }else{
+      PrintToDebug("Error read config file...");
+  }
+  return configSD;
+}
+
+String GetConfig(String configName){
+  String configloaded=LoadConfigFile();
+  StringSplitter *vsplited = new StringSplitter( configloaded,'\r',5);
+  int itemCount = vsplited->getItemCount();
+  String valueFound="";
+  for(int i = 0; i < itemCount; i++){
+     String item = vsplited->getItemAtIndex(i);
+    int indexOfConfigName= item.indexOf(configName);
+    if(indexOfConfigName>-1){
+      StringSplitter *csplited = new StringSplitter( item,'=',2);
+      valueFound=csplited->getItemAtIndex(1);
+    }
+  }
+  return valueFound;
+}
+
+void SaveConfiguration(String configName,String Value){
+  String configloaded=LoadConfigFile();
+  StringSplitter *vsplited = new StringSplitter( configloaded,'\r',25);
+  int itemCount = vsplited->getItemCount();
+  
+  if(!SD.exists(configFileName)){
+    PrintToDebug("no config file exist");
+    return;
+  } 
+
+  File fileOpen = SD.open(configFileName, FILE_WRITE | O_TRUNC); 
+  if(fileOpen){
+    for(int i = 0; i <= itemCount; i++){
+      String item = vsplited->getItemAtIndex(i);
+      PrintToDebug(item);
+      if(item=="" || item=="\r" || item=="\n" || item=="\r\n") item="--";
+      if(item!="--"){
+          int indexOfConfigName= item.indexOf(configName);
+          if(indexOfConfigName>-1){
+            StringSplitter *csplited = new StringSplitter( item,'=',2);
+            //valueFound=csplited->getItemAtIndex(1);
+            fileOpen.print(csplited->getItemAtIndex(0));
+            fileOpen.print("=");
+            fileOpen.print(Value);
+            fileOpen.print("\r");
+          }else{
+            fileOpen.print(item);
+            fileOpen.print("\r");
+          } 
+      }
+    }
+    fileOpen.close();
+    PrintToDebug("config file updated...");
+  }else{
+    PrintToDebug("Error read config file...");
+  }
 }
