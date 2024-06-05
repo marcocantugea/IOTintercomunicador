@@ -297,7 +297,10 @@ String sendData(String command, const int timeout, boolean debug){
     if (debug)
     {
       PrintToDebug(response);
+    }else{
+      PrintToSerial(response);
     }
+
     return response;
 }
 
@@ -323,6 +326,8 @@ String CheckSignal(long millis){
 
     if(DEBUG){
       PrintToDebug(message);
+    }else{
+      PrintToSerial(message);
     }
     return message;
 }
@@ -345,26 +350,29 @@ void ResetLTE(){
 
 void CheckForSerialCMD(){
   String message = "";
+  long time=millis();
+  while ((time + 3000) > millis()){
    while (Serial1.available() > 0)
     {
        char c = Serial1.read();
-         if (c == '\n' || c == '\r' || c == '\r\n' || c == '\n\r' ) 
-            {
-              message += '=';
-            }else{
-              message += c;
-            }
+        if (c == '\n' || c == '\r' || c == '\r\n' || c == '\n\r' ){
+          message += '=';
+        }else{
+          message += c;
+        }
     }
-
-    message.replace("==","");
+  }
     
+    message.replace("==","");
+    if(message=="") return;
+
     if(DEBUG && message!=""){
       PrintToDebug(message);
+    }else{
+      PrintToSerial(message);
     }
 
-    if(message=="") return;
-    
-    if(message.startsWith("=+CMT")){
+    if(message.startsWith("+CMT")){
       String commandsFound[3]={"","",""};
 
       //verify number for allow run cmds
@@ -519,8 +527,7 @@ String GetPhoneNumber(String message){
   int plusIndexOf= message.lastIndexOf("+");
   if(plusIndexOf==-1) return phone;
 
-  phone= message.substring(plusIndexOf,21);
-
+  phone= message.substring(plusIndexOf,20);
   return phone;
 }
 
