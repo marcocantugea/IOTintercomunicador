@@ -38,9 +38,9 @@ Sd2Card card;
 SdVolume volume;
 SdFile root;
 
-#define ARRAY_CMDS_SIZE 6
+#define ARRAY_CMDS_SIZE 7
 #define ARRAY_REGISTERCMD_SIZE 3
-const String cmds[ARRAY_CMDS_SIZE]={"chgpasscode","reset","signal","getconfig","chgadminphone","resetconfig"};
+const String cmds[ARRAY_CMDS_SIZE]={"chgpasscode","reset","signal","getconfig","chgadminphone","resetconfig","chghostphone"};
 const String cmdsRegister[ARRAY_REGISTERCMD_SIZE]={"adminphone","phonehouse","smshouse"};
 const String configFileName="confprf.ivo";
 
@@ -422,11 +422,18 @@ void CheckForSerialCMD(){
 
             //get the response
             String passcodeSendIt=response.substring(response.length()-6,response.length());
-            if(passcodeSendIt!=passcode) return;
+            if(hasResetConfigCmd>-1 && passcodeSendIt==passcode){
+              DoCommand(phoneNumber,commandsFound[0],commandsFound[1],commandsFound[2]);  
+            }else{
+              String passcodeConfig=GetConfig("passcode");
+              passcodeConfig.trim();
+              
+              if(passcodeConfig=="") passcodeConfig=passcode;
 
-            DoCommand(phoneNumber,commandsFound[0],commandsFound[1],commandsFound[2]);
-
-            //PrintToSerial(response);
+              if(passcodeSendIt!=passcodeConfig) return;
+              DoCommand(phoneNumber,commandsFound[0],commandsFound[1],commandsFound[2]);
+              //PrintToSerial(response);
+            }
          }
        }
        if(commandsFound[0]=="register"){
@@ -615,6 +622,40 @@ void DoCommand(String phoneNumber,String cmd,String action,String value ){
     SD.remove(configFileName);
     CreateInitialConfigInSD();
     SendSMS(phoneNumber,"reset done!",10000);
+  }
+
+  if(cmd=="cmd" && action=="chgpasscode" && value!=""){
+    SendSMS(phoneNumber,"confirmar guardar nuevo codigo?",10000);
+    String response=WaitForResponseClient(15000);
+    if(response=="") {
+      if(DEBUG){
+        PrintToDebug("no response..");  
+      }
+      return;
+    }
+
+    //get the response
+    String confirm=response.substring(response.length()-2,response.length());
+    if(confirm!="si") return;
+    SaveConfiguration("passcode", value);
+    SendSMS(phoneNumber,"change done!",10000);
+  }
+
+  if(cmd=="cmd" && action=="chghostphone" && value!=""){
+    SendSMS(phoneNumber,"confirmar guardar nuevo numero de host?",10000);
+    String response=WaitForResponseClient(15000);
+    if(response=="") {
+      if(DEBUG){
+        PrintToDebug("no response..");  
+      }
+      return;
+    }
+
+    //get the response
+    String confirm=response.substring(response.length()-2,response.length());
+    if(confirm!="si") return;
+    SaveConfiguration("hostPhone", value);
+    SendSMS(phoneNumber,"change done!",10000);
   }
 
 }
