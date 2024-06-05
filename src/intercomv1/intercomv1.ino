@@ -189,8 +189,7 @@ void setup(){
   InitializeSD();
   if(!SD.exists(configFileName)) CreateInitialConfigInSD();
     
-  PrintToSerial("Maduino Zero 4G Started!");
-  PrintOnDisplay("Maduino Zero 4G Started!");
+  PrintToDebug("Maduino Zero 4G Started!");
   sendData("AT+CGMM", 3000, DEBUG);
   
 
@@ -253,8 +252,7 @@ bool moduleStateCheck(){
         msg = sendData("AT", 1000, DEBUG);
         if (msg.indexOf("OK") >= 0)
         {
-            PrintToSerial("SIM7600 Module had turned on.");
-            PrintOnDisplay("SIM7600 Module had turned on.");
+            PrintToDebug("SIM7600 Module had turned on.");
             moduleState = true;
             return moduleState;
         }
@@ -267,7 +265,7 @@ String sendData(String command, const int timeout, boolean debug){
     String response = "";
     if (command.equals("1A") || command.equals("1a"))
     {
-        PrintToSerial("Get a 1A, input a 0x1A");
+        PrintToDebug("Get a 1A, input a 0x1A");
 
         Serial1.write(0x1A);
         Serial1.println();
@@ -298,8 +296,7 @@ String sendData(String command, const int timeout, boolean debug){
     response.replace("=="," ");
     if (debug)
     {
-      PrintOnDisplay(response);
-      PrintToSerial(response);
+      PrintToDebug(response);
     }
     return response;
 }
@@ -325,15 +322,13 @@ String CheckSignal(long millis){
     String message=String(signal)+"|"+ messageQuality;
 
     if(DEBUG){
-      PrintToSerial(message);
-      PrintOnDisplay(message);
+      PrintToDebug(message);
     }
     return message;
 }
 
 void ResetLTE(){
-  PrintToSerial("Reseting LTE...");
-  PrintOnDisplay("Reseting LTE...");
+  PrintToDebug("Reseting LTE...");
   digitalWrite(LTE_RESET_PIN, HIGH);
   digitalWrite(LTE_RESET_PIN, LOW);
   delay(100);
@@ -432,14 +427,13 @@ void CheckForSerialCMD(){
 
               if(passcodeSendIt!=passcodeConfig) return;
               DoCommand(phoneNumber,commandsFound[0],commandsFound[1],commandsFound[2]);
-              //PrintToSerial(response);
             }
          }
        }
        if(commandsFound[0]=="register"){
          if(isValidCommandRegister(commandsFound[1])){
             //triger cmd event
-            PrintToSerial(commandsFound[1]);
+            PrintToDebug(commandsFound[1]);
          }
        }
     }
@@ -449,8 +443,7 @@ String WaitForResponseClient(const int timeout){
   long int time = millis();
   String message = "";
   if(DEBUG){
-    PrintToSerial("Waiting for response...");
-    PrintOnDisplay("Waiting for response...");
+    PrintToDebug("Waiting for response...");
   }
   
   while ((time + timeout) > millis()){
@@ -469,8 +462,7 @@ String WaitForResponseClient(const int timeout){
   message.replace("==","");
 
   if(DEBUG && message!=""){
-    PrintOnDisplay(message);
-    PrintToSerial(message);
+    PrintToDebug(message);
   }
 
   return message;
@@ -489,24 +481,19 @@ void  CheckCommand(String message,String * arrayToReturn){
   arrayToReturn[0]=valuesSplited->getItemAtIndex(0);
 
   int containsEquals= valuesSplited->getItemAtIndex(1).indexOf('#');
-  PrintToSerial(String(containsEquals));
 
   if(containsEquals==-1){ 
-
     arrayToReturn[1]=valuesSplited->getItemAtIndex(1);
   }else{
     StringSplitter *vsplited = new StringSplitter(valuesSplited->getItemAtIndex(1), '#', 2);
     arrayToReturn[1]=vsplited->getItemAtIndex(0);
     arrayToReturn[2]=vsplited->getItemAtIndex(1);
   }
-
-  PrintToSerial(arrayToReturn[0]);
-  PrintToSerial(arrayToReturn[1]);
 }
 
 bool isValidCommand(String cmd){
   bool isValid=false;
-  //PrintToSerial(String(sizeof(cmds)));
+  
   for(int i=0; i<ARRAY_CMDS_SIZE;i++){
     if(cmds[i]==cmd){
       isValid=true;
@@ -517,7 +504,7 @@ bool isValidCommand(String cmd){
 
 bool isValidCommandRegister(String cmd){
   bool isValid=false;
-  //PrintToSerial(String(sizeof(cmds)));
+  
   for(int i=0; i<ARRAY_CMDS_SIZE;i++){
     if(cmdsRegister[i]==cmd){
       isValid=true;
