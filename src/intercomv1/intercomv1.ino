@@ -41,8 +41,9 @@ SdFile root;
 #define ARRAY_CMDS_SIZE 7
 #define ARRAY_REGISTERCMD_SIZE 3
 const String cmds[ARRAY_CMDS_SIZE]={"chgpasscode","reset","signal","getconfig","chgadminphone","resetconfig","chghostphone"};
-const String cmdsRegister[ARRAY_REGISTERCMD_SIZE]={"adminphone","phonehouse","smshouse"};
+const String cmdsRegister[ARRAY_REGISTERCMD_SIZE]={"housephone","housesms","list"};
 const String configFileName="confprf.ivo";
+const String registerFileName="regpra.ivo";
 
 String passcode = "448899";
 
@@ -188,6 +189,7 @@ void setup(){
   InitializeSetup();
   InitializeSD();
   if(!SD.exists(configFileName)) CreateInitialConfigInSD();
+  if(!SD.exists(registerFileName)) CreateInitialRegisterInSD();
     
   PrintToDebug("Maduino Zero 4G Started!");
   sendData("AT+CGMM", 3000, DEBUG);
@@ -397,13 +399,27 @@ void CheckForSerialCMD(){
         }  
       }
       
-
       CheckCommand(message,commandsFound);
       
       if(commandsFound[0]=="") return;
       commandsFound[0].trim();
       commandsFound[1].trim();
       commandsFound[2].trim();
+
+
+        SendSMS(phoneNumber, "envia el codigo", 15000);
+        String response = WaitForResponseClient(15000);
+        if (response == "") {
+          if (DEBUG) {
+            PrintToDebug("no response..");
+          }
+          return;
+        }
+
+        String passcodeConfig=GetConfig("passcode");
+        String passcodeSendIt=response.substring(response.length()-6,response.length());
+        passcodeConfig.trim();
+
        if(commandsFound[0]=="cmd"){
          if(isValidCommand(commandsFound[1])){
             //triger cmd event
@@ -411,25 +427,10 @@ void CheckForSerialCMD(){
               PrintToDebug("CMD "+commandsFound[0]+" AC "+commandsFound[1]);
               PrintToDebug("VAL "+commandsFound[2]);
             }
-            
-            //String response=WaitForResponseClient(15000);
-            //String response=WaitForResponseClient(15000);
-            SendSMS(phoneNumber,"envia el codigo",15000);
-            String response=WaitForResponseClient(15000);
-            if(response=="") {
-              if(DEBUG){
-                PrintToDebug("no response..");  
-              }
-              return;
-            }
 
-            //get the response
-            String passcodeSendIt=response.substring(response.length()-6,response.length());
             if(hasResetConfigCmd>-1 && passcodeSendIt==passcode){
               DoCommand(phoneNumber,commandsFound[0],commandsFound[1],commandsFound[2]);  
             }else{
-              String passcodeConfig=GetConfig("passcode");
-              passcodeConfig.trim();
               
               if(passcodeConfig=="") passcodeConfig=passcode;
 
@@ -441,7 +442,18 @@ void CheckForSerialCMD(){
        if(commandsFound[0]=="register"){
          if(isValidCommandRegister(commandsFound[1])){
             //triger cmd event
-            PrintToDebug(commandsFound[1]);
+            if(DEBUG){
+              PrintToDebug("CMD "+commandsFound[0]+" AC "+commandsFound[1]);
+              PrintToDebug("VAL "+commandsFound[2]);
+            }
+
+            if(passcodeConfig=="") passcodeConfig=passcode;
+
+            if(passcodeSendIt!=passcodeConfig){ 
+              PrintToDebug("invalid pass code");
+              return;
+            } 
+            DoCommand(phoneNumber,commandsFound[0],commandsFound[1],commandsFound[2]);
          }
        }
     }
@@ -513,7 +525,7 @@ bool isValidCommand(String cmd){
 bool isValidCommandRegister(String cmd){
   bool isValid=false;
   
-  for(int i=0; i<ARRAY_CMDS_SIZE;i++){
+  for(int i=0; i<ARRAY_REGISTERCMD_SIZE;i++){
     if(cmdsRegister[i]==cmd){
       isValid=true;
     }
@@ -652,6 +664,11 @@ void DoCommand(String phoneNumber,String cmd,String action,String value ){
     SendSMS(phoneNumber,"change done!",10000);
   }
 
+  if(cmd=="register" && action=="list"){
+    String registerFile=LoadRegister();
+    SendSMS(phoneNumber,registerFile,10000);
+  }
+
 }
 
 void CreateInitialConfigInSD(){
@@ -680,6 +697,30 @@ void CreateInitialConfigInSD(){
    }
 }
 
+void CreateInitialRegisterInSD(){
+  int sizeOfInitialConfig=1;
+  char *config[sizeOfInitialConfig]={"house=01#phone=+520000000000"};
+
+  if(SD.exists(registerFileName)){
+    PrintToDebug("exists register file");
+    return;
+  } 
+  // Declare a buffer to hold the result
+  
+  File registerFile = SD.open(registerFileName, FILE_WRITE | O_TRUNC);
+    if (registerFile) {
+      for (int i=0; i<sizeOfInitialConfig; i++) {
+        registerFile.print(config[i]);
+        registerFile.print("\r");
+      }
+      registerFile.close();
+      PrintToDebug("Register File Created...");
+
+   }else{
+     PrintToDebug("Error writing the Register file");
+   }
+}
+
 String LoadConfigFile(){
   
   String configSD="";
@@ -695,6 +736,22 @@ String LoadConfigFile(){
       PrintToDebug("Error read config file...");
   }
   return configSD;
+}
+
+String LoadRegister(){
+  String registerLines="";
+  if(!SD.exists(registerFileName)) return registerLines;
+  File registerFile = SD.open(registerFileName);
+  if(registerFile){
+    if (registerFile.available()) {
+      registerLines=registerFile.readString();
+    }
+    registerFile.close();
+    PrintToDebug("Checking register file...");
+  }else{
+      PrintToDebug("Error read register file...");
+  }
+  return registerLines;
 }
 
 String GetConfig(String configName){
