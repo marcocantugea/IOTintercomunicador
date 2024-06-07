@@ -39,11 +39,12 @@ SdVolume volume;
 SdFile root;
 
 #define ARRAY_CMDS_SIZE 7
-#define ARRAY_REGISTERCMD_SIZE 3
+#define ARRAY_REGISTERCMD_SIZE 4
 const String cmds[ARRAY_CMDS_SIZE]={"chgpasscode","reset","signal","getconfig","chgadminphone","resetconfig","chghostphone"};
-const String cmdsRegister[ARRAY_REGISTERCMD_SIZE]={"housephone","housesms","list"};
+const String cmdsRegister[ARRAY_REGISTERCMD_SIZE]={"housephone","housesms","list","rmhouse"};
 const String configFileName="confprf.ivo";
 const String registerFileName="regpra.ivo";
+const String logFile="loga.log";
 
 String passcode = "448899";
 
@@ -374,7 +375,9 @@ void CheckForSerialCMD(){
       PrintToSerial(message);
     }
 
-    if(message.startsWith("+CMT")){
+    int hasSignCommand=message.indexOf("$");
+
+    if(message.startsWith("+CMT") && hasSignCommand>-1){
       String commandsFound[3]={"","",""};
 
       //verify number for allow run cmds
@@ -398,7 +401,7 @@ void CheckForSerialCMD(){
           }
         }  
       }
-      
+
       CheckCommand(message,commandsFound);
       
       if(commandsFound[0]=="") return;
@@ -669,6 +672,81 @@ void DoCommand(String phoneNumber,String cmd,String action,String value ){
     SendSMS(phoneNumber,registerFile,10000);
   }
 
+  if(cmd=="register" && action=="housephone"){
+    SendSMS(phoneNumber,"envie el numero de casa",10000);
+    String response=WaitForResponseClient(15000);
+    if(response=="") {
+      if(DEBUG){
+        PrintToDebug("no response..");  
+      }
+      return;
+    }
+
+    String house=response.substring(response.length()-2,response.length());
+    if(house=="") {
+      if(DEBUG){
+        PrintToDebug("no response house number..");  
+      }
+      return;
+    }
+
+    SendSMS(phoneNumber,"envie el numero de telefono",18000);
+    response=WaitForResponseClient(15000);
+    if(response=="") {
+      if(DEBUG){
+        PrintToDebug("no response..");  
+      }
+      return;
+    }
+
+    String phone=response.substring(response.length()-10,response.length());
+    if(phone==""){
+      if(DEBUG){
+        PrintToDebug("no response phone number..");  
+      }
+      return;
+    }
+
+    PrintToDebug(house);
+    PrintToDebug(phone);
+    PrintToDebug(GetHouseFromRegister(house));
+
+    if(!AddLineToRegister(house,phone)){
+      PrintToDebug("error al registar la casa y el telefono");
+      SendSMS(phoneNumber,"Casa ya existente.",14000);  
+      return;
+    }
+
+    SendSMS(phoneNumber,"registro agregado con exito",14000);
+
+  }
+
+  if(cmd=="register" && action=="rmhouse" && value!=""){
+    SendSMS(phoneNumber,"desea eliminar la casa no."+ value,10000);
+
+    String response=WaitForResponseClient(15000);
+    if(response=="") {
+      if(DEBUG){
+        PrintToDebug("no response..");  
+      }
+      return;
+    }
+
+    String confirm=response.substring(response.length()-2,response.length());
+
+    if(confirm!="si") return;
+
+    int houseVal=value.toInt();
+    if(houseVal==0) {
+      SendSMS(phoneNumber,"numero de casa invalido",10000);  
+      return;
+    }
+
+    DeleteLineInRegister(value);
+    SendSMS(phoneNumber,"registro actualizado",10000);
+
+  }
+
 }
 
 void CreateInitialConfigInSD(){
@@ -806,4 +884,101 @@ void SaveConfiguration(String configName,String Value){
   }else{
     PrintToDebug("Error read config file...");
   }
+}
+
+bool AddLineToRegister(String house,String phone){
+  bool added=true;
+  int houseVal= house.toInt();
+  if(houseVal==0) {
+    PrintToDebug("invalid house");
+    return false;
+  }
+
+  int phoneVal= phone.toInt();
+  if(phoneVal==0){
+    PrintToDebug("invalid phone");
+    return false;
+  }
+
+  String registerLine=GetHouseFromRegister(house);
+  if(registerLine!=""){
+    return false;
+  }
+
+  File fileOpen = SD.open(registerFileName, FILE_WRITE); 
+  if(fileOpen){
+    fileOpen.print("house=");
+    fileOpen.print(house);
+    fileOpen.print("#phone=+52");
+    fileOpen.print(phone);
+    fileOpen.print("\r");
+    fileOpen.close();
+    PrintToDebug("register file updated...");
+  }else{
+    PrintToDebug("Error read config file...");
+    return false;
+  }
+  
+  return added;
+}
+
+bool UpdateLineInRegister(String house,String phone){
+  bool savedSuccess=true;
+  String houseSaved= GetHouseFromRegister(house);
+  if(houseSaved!=""){
+    DeleteLineInRegister(house);
+  }
+
+  if(AddLineToRegister(house,phone)){
+    savedSuccess= true;
+  }else{
+    savedSuccess= false;
+  }
+
+  return savedSuccess;
+}
+
+void DeleteLineInRegister(String house){
+  String registerFilebuff=LoadRegister();
+  StringSplitter *vsplited = new StringSplitter( registerFilebuff,'\r',50);
+  int itemCount = vsplited->getItemCount();
+  String valueFound="";
+  String newRegister="";
+  for(int i = 0; i < itemCount; i++){
+    int houseVal=vsplited->getItemAtIndex(i).indexOf(house);
+    if(houseVal==-1){
+      String row=vsplited->getItemAtIndex(i);
+      if(row!="" ||  row!="\r") newRegister+=row;
+    }
+  }
+
+  File registerFile = SD.open(registerFileName, FILE_WRITE | O_TRUNC);
+  if(registerFile){
+    registerFile.print(newRegister);
+    registerFile.print("\r");
+    registerFile.close();
+     PrintToDebug("register file updated...");
+  }else{
+    PrintToDebug("Erro to open register file");
+  }
+
+}
+
+String GetHouseFromRegister(String house){
+  String line="";
+   if(!SD.exists(registerFileName)) return line;
+  File registerFile = SD.open(registerFileName);
+  if(registerFile){
+    if (registerFile.available()) {
+      String linebuff=registerFile.readString();
+      if(linebuff.indexOf(house)>-1){
+        line=linebuff;
+      }
+    }
+    registerFile.close();
+    PrintToDebug("Checking register file...");
+  }else{
+      PrintToDebug("Error read register file...");
+  }
+  return line;
 }
