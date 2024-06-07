@@ -706,9 +706,7 @@ void DoCommand(String phoneNumber,String cmd,String action,String value ){
       }
       return;
     }
-
-    PrintToDebug(house);
-    PrintToDebug(phone);
+    
     PrintToDebug(GetHouseFromRegister(house));
 
     if(!AddLineToRegister(house,phone)){
